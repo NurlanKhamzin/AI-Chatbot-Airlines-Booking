@@ -3,3 +3,6 @@ __pycache__/
 *.py[cod]
 .env
 .DS_Store
+
+# Cursor IDE (do not commit local rules/metadata)
+.cursor/
