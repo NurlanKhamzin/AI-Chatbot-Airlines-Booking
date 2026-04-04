@@ -10,8 +10,9 @@ class Settings(BaseSettings):
     # LLM: auto = prefer DeepSeek key if set, else OpenAI
     llm_provider: str = "auto"
     deepseek_api_key: str = ""
-    # Tool-calling agent: use deepseek-chat. deepseek-reasoner (R1) does not support tools.
+    # ReAct / tools: use deepseek-chat. R1 cannot call tools — use deepseek_reasoning_model for a second pass only.
     deepseek_model: str = "deepseek-chat"
+    deepseek_reasoning_model: str = "deepseek-reasoner"
     openai_api_key: str = ""
     openai_base_url: str = ""
     openai_model: str = "gpt-4o-mini"

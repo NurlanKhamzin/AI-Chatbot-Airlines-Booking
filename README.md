@@ -1,87 +1,77 @@
-# AI flight-search agent (interview assignment)
+# Flight search assistant
 
-This repo implements a **functioning AI agent** for a real problem (finding airline options): a **LangGraph** ReAct-style agent with **LLM + tools**, aligned with a “code first” stack (e.g. LangChain / **LangGraph**, Pydantic).
+A small web API that answers in plain English when you ask for flights. It looks up airports and prices through the [Duffel](https://duffel.com/) API and uses an AI model (DeepSeek or OpenAI) to talk to you. You can use it from the built-in docs page, from any HTTP client, or from Discord if you add a bot token.
 
-**Flights:** **[Duffel](https://duffel.com/)** Flights API — sign up at **[app.duffel.com/join](https://app.duffel.com/join)**, create a **test access token** (`duffel_test_…`) under Developers → Access tokens, and set `DUFFEL_API_KEY`. [Test mode](https://duffel.com/docs/api/overview/test-mode) returns sandbox offers (no real bookings). See the [getting started guide](https://duffel.com/docs/guides/getting-started-with-flights).
+At first the idea was to use **Amadeus** for real airline data, but their API isn’t realistically available to independent developers anymore (self-service access is very limited), so the app uses **Duffel** instead, which is built for this kind of integration and works well with a test token.
 
-We **do not use Amadeus** (self-service access is limited) or **Kiwi Tequila** (Tequila is [partner-restricted / not open for general signup](https://tequila.kiwi.com/portal/docs/tequila_api)). Duffel is a practical developer-first alternative with clear docs and a sandbox.
+---
 
-**LLM:** Prefer **[DeepSeek](https://www.deepseek.com/)** via LangChain **`ChatDeepSeek`**. Set `DEEPSEEK_API_KEY`. With `LLM_PROVIDER=auto`, DeepSeek wins if that key is set, else **OpenAI**.
+## What you need before you start
 
-**Important:** Use **`deepseek-chat`** for tool calling. **`deepseek-reasoner`** (R1-style) does **not** support tool calling in the API.
+1. **Duffel** — Free to sign up. In the dashboard go to Developers → Access tokens and create a **test** token (it starts with `duffel_test_`). That lets you search fake inventory without buying real tickets.
 
-## What to show in the interview
+2. **An LLM API key** — Either **DeepSeek** or **OpenAI**. If you set both, the app prefers DeepSeek when `LLM_PROVIDER` is `auto`.
 
-- **Problem:** Trip planning / fare discovery is fragmented; an agent combines natural language with structured flight search.
-- **Architecture:** FastAPI → **LangGraph** `create_react_agent` → **ChatDeepSeek** or **ChatOpenAI** → tools (`lookup_iata`, `search_flight_offers`) → **Duffel** → summarized reply (optional **Discord**).
-- **Why Duffel over Kiwi:** Tequila/Kiwi API access is gated for many developers; Duffel’s test tokens and docs are built for integration work.
+---
 
-## Setup
+## Configuration
 
-1. **Duffel:** [Join](https://app.duffel.com/join) → Dashboard → **Developers** → **Access tokens** → create token → `DUFFEL_API_KEY` in `.env`.
-2. **LLM:** `DEEPSEEK_API_KEY` and/or `OPENAI_API_KEY`.
-3. Copy `.env.example` → `.env` and fill values.
+Create a file named `.env` in the project root (same folder as `run.py`). You can copy the block below and fill in your values.
+
+```
+DUFFEL_API_KEY=your_duffel_test_token
+
+LLM_PROVIDER=auto
+DEEPSEEK_API_KEY=
+DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_REASONING_MODEL=deepseek-reasoner
+
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_BASE_URL=
+
+DISCORD_BOT_TOKEN=
+DISCORD_COMMAND_PREFIX=!flight
+```
+
+- **`DEEPSEEK_REASONING_MODEL`** — Optional. If set (e.g. to `deepseek-reasoner`), the app runs a second pass to polish the answer. Leave it empty if you want one call only and lower cost.
+- **Discord** — Leave `DISCORD_BOT_TOKEN` empty if you only use the web API. To use the bot, create an application in the [Discord developer portal](https://discord.com/developers/applications), copy the bot token, turn on **Message Content Intent**, and invite the bot to your server with message permissions.
+- In a **server channel**, the bot usually expects messages that start with **`!flight`** (or whatever you set) or an **@mention**. In **DMs** you can write normally.
+
+---
+
+## Run locally
 
 ```bash
-cd /path/to/AI-Chatbot-Airlines-Booking
+cd AI-Chatbot-Airlines-Booking
 python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 python run.py
 ```
 
-**`python run.py`** starts uvicorn with **`--loop asyncio`** (not uvloop). On **macOS**, the default **uvloop** loop often causes **`SSL: CERTIFICATE_VERIFY_FAILED`** for Discord’s aiohttp client, so the bot never connects and appears offline.
+The API listens at **http://127.0.0.1:8000**. Open **http://127.0.0.1:8000/docs** to try `POST /api/chat` from the browser.
 
-Equivalent manual command:
+On a Mac, if the Discord bot fails to connect with an SSL error, start the server with the asyncio loop (the `run.py` script already does this), or run:
 
 `uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000 --loop asyncio`
 
-If TLS still fails, run **`/Applications/Python 3.12/Install Certificates.command`** once (python.org install).
+If problems persist, run **Install Certificates.command** from your Python folder (for python.org installs).
 
-Use **Discord** (below), **curl**, or **http://127.0.0.1:8000/docs** for `/api/chat`.
+---
 
-## Discord (optional)
+## Using the API
 
-With `DISCORD_BOT_TOKEN` in `.env`, uvicorn starts the Discord client. Same agent as `/api/chat`.
+- **Health check:** `GET /api/health` — shows whether Duffel, the LLM, and the agent are configured.
+- **Chat:** `POST /api/chat` with JSON like:
 
-1. [Discord Developer Portal](https://discord.com/developers/applications) → **Bot** → token → `DISCORD_BOT_TOKEN`.
-2. Enable **Message Content Intent** on the bot.
-3. OAuth2 URL with **bot** scope; invite to a server.
-4. In a channel: `!flight Paris to Berlin on 2026-08-12` or @mention the bot. DMs need no prefix.
-
-**Bot does nothing in a server?**
-
-- **Keep uvicorn running** — the Discord connection lives in the same process. If you stop the terminal, the bot goes **offline** and will not answer.
-- **Message Content Intent** — In the Developer Portal → your app → **Bot** → **Privileged Gateway Intents**, turn **Message Content Intent** **ON**, then **Save**. Without it, Discord does **not** send message text to the bot in servers, so `!flight …` is invisible and the code never replies.
-- Confirm the bot appears **online** (green) in the member list. If it’s offline, check the terminal for errors (bad token, task crash).
-- **Channel permissions:** the bot needs **View Channel** + **Send Messages** in that channel.
-- **`SSL: CERTIFICATE_VERIFY_FAILED` for Discord:** the app pins TLS for Discord via **`truststore`** (macOS) / **certifi**. Run `pip install -r requirements.txt`. If it still fails: **Install Certificates.command** in `/Applications/Python 3.x/`, or **`uvicorn ... --loop asyncio`**.
-
-## API
-
-- `GET /api/health` — `duffel_configured`, `llm_configured`, `llm_provider`, `discord_enabled`, `agent_ready`, `agent_framework`
-- `POST /api/chat` — `{ "message": "...", "history": [] }` → `{ "reply": "..." }`
-
-## Files
-
-Hand-written layout (**15** repo files + optional local **`.env`**). After you run the app, `backend/__pycache__/` adds `.pyc` bytecode — many editors then show **~23** files total (source + cache + `.env`).
-
+```json
+{
+  "message": "Flights from Paris to Berlin on 2026-08-12, one adult",
+  "history": []
+}
 ```
-.
-├── .env.example          # copy → .env
-├── .gitignore
-├── README.md
-├── requirements.txt
-├── run.py                # uvicorn with asyncio loop (Discord on macOS)
-└── backend/
-    ├── __init__.py
-    ├── agent.py          # LangGraph agent + Duffel tools
-    ├── agent_runtime.py  # Duffel client + compiled graph
-    ├── config.py         # pydantic-settings / .env
-    ├── discord_bot.py    # Discord adapter (aiohttp TLS)
-    ├── duffel_client.py  # place suggestions + offer requests
-    ├── flight_format.py  # format Duffel offers for chat
-    ├── llm_config.py
-    ├── llm_factory.py    # ChatDeepSeek vs ChatOpenAI
-    └── main.py           # FastAPI + lifespan
-```
+
+The response is `{ "reply": "..." }`. You can add past turns to `history` if you want continuity.
+
+Restart the server after you change `.env`.

@@ -13,26 +13,31 @@ from backend.llm_config import effective_llm_provider
 logger = logging.getLogger(__name__)
 
 
+def _deepseek_tool_model_name() -> str:
+    """ReAct requires tool-capable model; map reasoner id to deepseek-chat."""
+    name = (settings.deepseek_model or "deepseek-chat").strip()
+    if "reasoner" in name.lower():
+        logger.warning(
+            "DEEPSEEK_MODEL=%s cannot run tools; using deepseek-chat for the agent. "
+            "Use DEEPSEEK_REASONING_MODEL for R1.",
+            name,
+        )
+        return "deepseek-chat"
+    return name
+
+
 def build_chat_model() -> BaseChatModel:
     """
-    DeepSeek: uses langchain-deepseek ChatDeepSeek (LangChain integration).
+    DeepSeek: ChatDeepSeek for LangGraph tool calling (deepseek-chat).
     OpenAI: ChatOpenAI; optional OPENAI_BASE_URL for Azure or other compatible APIs.
 
-    For LangGraph tool calling, use a model that supports tools. DeepSeek's
-    ``deepseek-reasoner`` (R1-style) does not support tool calling — use
-    ``deepseek-chat`` (default) for this agent.
+    R1 / ``deepseek-reasoner`` does not support tool calls — use ``build_reasoning_model()`` for an optional refine pass.
     """
     provider = effective_llm_provider()
     if provider == "deepseek":
         from langchain_deepseek import ChatDeepSeek
 
-        model = (settings.deepseek_model or "deepseek-chat").strip()
-        if "reasoner" in model.lower():
-            logger.warning(
-                "DEEPSEEK_MODEL=%s may not support tool calling; "
-                "use deepseek-chat for the flight agent, or expect failures.",
-                model,
-            )
+        model = _deepseek_tool_model_name()
         return ChatDeepSeek(
             model=model,
             api_key=settings.deepseek_api_key,
@@ -52,4 +57,23 @@ def build_chat_model() -> BaseChatModel:
     raise RuntimeError(
         "No LLM configured. Set DEEPSEEK_API_KEY and optionally LLM_PROVIDER=deepseek, "
         "or OPENAI_API_KEY (and LLM_PROVIDER=openai)."
+    )
+
+
+def build_reasoning_model() -> BaseChatModel | None:
+    """Optional DeepSeek R1 pass to polish the draft reply (no tools). OpenAI: not used."""
+    if effective_llm_provider() != "deepseek":
+        return None
+    rm = (settings.deepseek_reasoning_model or "").strip()
+    if not rm:
+        return None
+    tool_name = _deepseek_tool_model_name()
+    if rm.lower() == tool_name.lower():
+        return None
+    from langchain_deepseek import ChatDeepSeek
+
+    return ChatDeepSeek(
+        model=rm,
+        api_key=settings.deepseek_api_key,
+        temperature=0.1,
     )

@@ -33,7 +33,7 @@ from backend.agent_runtime import (
     get_agent_graph,
     llm_provider_label,
 )
-from backend.llm_config import llm_configured
+from backend.llm_config import effective_llm_provider, llm_configured
 from backend.config import settings
 from backend.discord_bot import run_discord_bot
 
@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Airline flight-search agent",
-    version="0.3.0",
+    version="0.4.0",
     description="LangGraph ReAct agent with Duffel flight tools; optional Discord bot.",
     lifespan=lifespan,
 )
@@ -88,11 +88,14 @@ class ChatResponse(BaseModel):
 
 @app.get("/api/health")
 async def health():
+    ds_reason = (settings.deepseek_reasoning_model or "").strip()
+    ep = effective_llm_provider()
     return {
         "ok": True,
         "duffel_configured": duffel.configured(),
         "llm_configured": llm_configured(),
         "llm_provider": llm_provider_label(),
+        "deepseek_reasoning_model": (ds_reason or None) if ep == "deepseek" else None,
         "discord_enabled": bool(settings.discord_bot_token.strip()),
         "agent_ready": agent_ready(),
         "agent_framework": "langgraph",

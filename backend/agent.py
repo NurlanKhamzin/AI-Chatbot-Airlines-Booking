@@ -6,13 +6,19 @@ Tools call Duffel Flights API; the model plans when to resolve locations vs sear
 
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+import logging
+
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from backend.duffel_client import DuffelClient, DuffelError
 from backend.flight_format import format_offers
-from backend.llm_factory import build_chat_model
+from backend.llm_factory import build_chat_model, build_reasoning_model
+
+logger = logging.getLogger(__name__)
+
+_REASONING_SYSTEM = """You refine answers from a flight search assistant. Improve clarity and reasoning where helpful; keep every price, time, and fact from the draft. Do not invent flights, prices, or schedules."""
 
 
 def _system_prompt() -> str:
@@ -97,6 +103,21 @@ def history_to_messages(
     return out
 
 
+def _aimessage_to_text(msg: AIMessage) -> str:
+    text = msg.content
+    if isinstance(text, str):
+        return text
+    if isinstance(text, list):
+        parts = []
+        for block in text:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts) or "(No text response.)"
+    return str(text)
+
+
 async def run_agent(
     graph,
     history: list[dict[str, str]],
@@ -106,16 +127,33 @@ async def run_agent(
     result = await graph.ainvoke({"messages": messages})
     final = result["messages"][-1]
     if isinstance(final, AIMessage):
-        text = final.content
-        if isinstance(text, str):
-            return text
-        if isinstance(text, list):
+        draft = _aimessage_to_text(final)
+    else:
+        draft = str(getattr(final, "content", final))
+
+    reasoner = build_reasoning_model()
+    if reasoner is None:
+        return draft
+    try:
+        refined = await reasoner.ainvoke(
+            [
+                SystemMessage(content=_REASONING_SYSTEM),
+                HumanMessage(content=draft),
+            ]
+        )
+        content = refined.content
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+        if isinstance(content, list):
             parts = []
-            for block in text:
+            for block in content:
                 if isinstance(block, dict) and block.get("type") == "text":
                     parts.append(block.get("text", ""))
                 elif isinstance(block, str):
                     parts.append(block)
-            return "".join(parts) or "(No text response.)"
-        return str(text)
-    return str(getattr(final, "content", final))
+            joined = "".join(parts).strip()
+            if joined:
+                return joined
+    except Exception as e:  # noqa: BLE001
+        logger.warning("DeepSeek reasoning pass failed, using draft reply: %s", e)
+    return draft
