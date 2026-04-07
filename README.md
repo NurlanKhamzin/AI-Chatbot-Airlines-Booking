@@ -118,6 +118,7 @@ The app sends itinerary mail to whatever SMTP you configure. For **local testing
 4. After a booking, open **http://127.0.0.1:8025** to see the itinerary message.
 
 If **`smtp_configured`** is false, the booking still succeeds in Duffel but no email is sent.
+
 ---
 
 ## Acknowledgment
