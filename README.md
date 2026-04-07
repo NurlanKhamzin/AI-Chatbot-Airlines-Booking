@@ -30,8 +30,20 @@ OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
 OPENAI_BASE_URL=
 
+# Optional: frictionless 3DS in dev only (see Duffel corporate / 3DS docs). Leave empty in production.
+DUFFEL_THREE_DS_EXCEPTION=
+
 DISCORD_BOT_TOKEN=
 DISCORD_COMMAND_PREFIX=!flight
+
+# Optional: itinerary email — local dev with Mailpit (run `mailpit`, UI http://127.0.0.1:8025)
+SMTP_HOST=127.0.0.1
+SMTP_PORT=1025
+SMTP_FROM=bookings@local.test
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_USE_TLS=0
+SMTP_SSL=0
 ```
 
 - **`DEEPSEEK_REASONING_MODEL`** — Optional. If set (e.g. to `deepseek-reasoner`), the app runs a second pass to polish the answer. Leave it empty if you want one call only and lower cost.
@@ -74,4 +86,35 @@ If problems persist, run **Install Certificates.command** from your Python folde
 
 The response is `{ "reply": "..." }`. You can add past turns to `history` if you want continuity.
 
+**Booking in chat (same for Discord):** If the user asks to book an offer, the model is instructed to collect **traveler + passport** details first, then **payment**. With a **test** Duffel token, **`payment_type=balance`** completes the booking **without any card** (prefer this for demos). **Card** data is only used to call **`book_flight_offer`** (Duffel’s card API)—never to email card numbers to a personal inbox; **itinerary email** is only for the confirmation message after booking. Some LLMs may still refuse to type card fields; use **balance** or a different model if that happens. If **`SMTP_HOST`** and **`SMTP_FROM`** are set, the server emails a plain-text itinerary. **`GET /api/health`** includes **`smtp_configured`**.
+
+- **Instant order (test):** `POST /api/orders` — book a single offer with Duffel test **balance** or a **card** (see OpenAPI at `/docs`). Use the **offer id** (`off_…`) and **passenger ids** (`pas_…`) shown in the chat after a search. `total_amount` and `total_currency` must match the offer exactly.
+
+Sending raw card numbers to your own server has **PCI** implications; for production, Duffel recommends **Duffel Components** so card data goes straight to Duffel. If 3DS returns `challenge_required`, the API responds with **409** and a `client_id` for a browser challenge (or use a frictionless test card from Duffel’s docs, or the optional `DUFFEL_THREE_DS_EXCEPTION` only where appropriate).
+
+---
+
+## Tests
+
+```bash
+pip install -r requirements.txt
+pytest
+```
+
+Checks include offer formatting (ids visible for booking), booking flow with mocked Duffel, and **response-quality** helpers that flag when a reply drops tool-sourced prices (plus a mocked “reasoning” pass that must keep amounts).
+
 Restart the server after you change `.env`.
+
+---
+
+## Itinerary email after booking (Mailpit — local dev)
+
+The app sends itinerary mail to whatever SMTP you configure. For **local testing**, use **[Mailpit](https://github.com/axllent/mailpit)** (nothing is delivered to the real internet; you read messages in a browser).
+
+1. Install and start Mailpit, e.g. run `mailpit` in a terminal, or:  
+   `docker run -d --rm -p 8025:8025 -p 1025:1025 axllent/mailpit`
+2. Keep `.env` aligned with the sample project (already set for Mailpit): `SMTP_HOST=127.0.0.1`, `SMTP_PORT=1025`, `SMTP_FROM=...`, `SMTP_USE_TLS=0`, `SMTP_SSL=0`, empty user/password.
+3. Restart `python run.py`, then check **`GET /api/health`** → **`smtp_configured`: true**.
+4. After a booking, open **http://127.0.0.1:8025** to see the itinerary message.
+
+If **`smtp_configured`** is false, the booking still succeeds in Duffel but no email is sent.

@@ -31,7 +31,15 @@ def format_offers(offer_request_response: dict[str, Any], max_lines: int = 8) ->
             for seg in sl.get("segments") or []:
                 parts.append(_segment_summary(seg))
         route = " | ".join(parts) if parts else "(itinerary unavailable)"
-        lines.append(f"{i}. **{total} {cur}** — {route}")
+        off_id = (offer.get("id") or "").strip()
+        pax_ids = [str(p.get("id", "")).strip() for p in (offer.get("passengers") or []) if p.get("id")]
+        id_bits: list[str] = []
+        if off_id:
+            id_bits.append(f"offer `{off_id}`")
+        if pax_ids:
+            id_bits.append("passengers " + ", ".join(f"`{x}`" for x in pax_ids))
+        suffix = f" — {'; '.join(id_bits)}" if id_bits else ""
+        lines.append(f"{i}. **{total} {cur}** — {route}{suffix}")
 
     extra = len(offers) - max_lines
     if extra > 0:

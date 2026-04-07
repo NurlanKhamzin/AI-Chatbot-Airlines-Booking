@@ -19,7 +19,7 @@ from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
-MAX_STORED_MESSAGES = 24
+MAX_STORED_MESSAGES = 48
 _history: dict[str, deque[dict[str, str]]] = defaultdict(
     lambda: deque(maxlen=MAX_STORED_MESSAGES)
 )
